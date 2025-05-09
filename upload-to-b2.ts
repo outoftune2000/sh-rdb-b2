@@ -1,7 +1,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
+const { createHash } = require('crypto');
 require('dotenv').config();
 
 interface B2AuthResponse {
@@ -66,7 +66,7 @@ async function uploadToB2() {
     const fileName = `redis-backup-${new Date().toISOString()}.rdb`;
     
     // Calculate SHA1
-    const sha1 = crypto.createHash('sha1').update(fileContent).digest('hex');
+    const sha1 = createHash('sha1').update(fileContent).digest('hex');
     
     // Upload file
     const response = await axios.post(uploadUrlResponse.uploadUrl, fileContent, {
@@ -81,9 +81,9 @@ async function uploadToB2() {
 
     console.log('Successfully uploaded to B2');
     console.log('File URL:', `${authResponse.downloadUrl}/file/${bucketId}/${fileName}`);
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      console.error('Upload failed:', error.response?.data || error.message);
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error as any)) {
+      console.error('Upload failed:', (error as any).response?.data || (error as any).message);
     } else {
       console.error('Upload failed:', error);
     }
