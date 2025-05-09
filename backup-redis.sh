@@ -13,7 +13,7 @@ fi
 
 # Execute SAVE command in Redis
 echo "Saving Redis data..."
-docker exec $REDIS_CONTAINER_NAME redis-cli -a $REDIS_PASSWORD SAVE
+docker exec $REDIS_CONTAINER_NAME redis-cli -u redis://default:$REDIS_PASSWORD@localhost:6379 SAVE
 
 # Copy dump.rdb from container
 echo "Copying dump.rdb from container..."
@@ -22,12 +22,12 @@ docker cp $REDIS_CONTAINER_NAME:/data/dump.rdb ./dump.rdb
 # Install dependencies if needed
 if [ ! -d "node_modules" ]; then
     echo "Installing dependencies..."
-    npm install backblaze-b2 typescript @types/node
+    npm install axios dotenv typescript @types/node ts-node
 fi
 
 # Compile and run TypeScript upload script
 echo "Uploading to B2..."
-npx ts-node upload-to-b2.ts
+npx ts-node --esm upload-to-b2.ts
 
 # Clean up
 echo "Cleaning up..."

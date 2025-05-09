@@ -2,6 +2,7 @@
   "name": "redis-backup-b2",
   "version": "1.0.0",
   "description": "Redis backup to Backblaze B2",
+  "type": "module",
   "main": "upload-to-b2.ts",
   "scripts": {
     "backup": "bash backup-redis.sh"
@@ -10,6 +11,7 @@
     "axios": "^1.6.7",
     "dotenv": "^16.4.5",
     "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2"
   }
 } 
