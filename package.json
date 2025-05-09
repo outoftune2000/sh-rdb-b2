@@ -1,0 +1,14 @@
+{
+  "name": "redis-backup-b2",
+  "version": "1.0.0",
+  "description": "Redis backup to Backblaze B2",
+  "main": "upload-to-b2.ts",
+  "scripts": {
+    "backup": "bash backup-redis.sh"
+  },
+  "dependencies": {
+    "backblaze-b2": "^1.7.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+} 
