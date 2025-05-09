@@ -13,7 +13,7 @@ fi
 
 # Execute SAVE command in Redis
 echo "Saving Redis data..."
-docker exec $REDIS_CONTAINER_NAME redis-cli --user default --pass $REDIS_PASSWORD SAVE
+docker exec $REDIS_CONTAINER_NAME redis-cli -a "$REDIS_PASSWORD" --no-auth-warning SAVE
 
 # Copy dump.rdb from container
 echo "Copying dump.rdb from container..."
