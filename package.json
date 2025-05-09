@@ -2,7 +2,6 @@
   "name": "redis-backup-b2",
   "version": "1.0.0",
   "description": "Redis backup to Backblaze B2",
-  "type": "module",
   "main": "upload-to-b2.ts",
   "scripts": {
     "backup": "bash backup-redis.sh"

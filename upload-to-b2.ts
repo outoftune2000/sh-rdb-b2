@@ -1,10 +1,8 @@
-import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as crypto from 'crypto';
-import dotenv from 'dotenv';
-
-dotenv.config();
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+require('dotenv').config();
 
 interface B2AuthResponse {
   authorizationToken: string;

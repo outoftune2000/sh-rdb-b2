@@ -13,7 +13,7 @@ fi
 
 # Execute SAVE command in Redis
 echo "Saving Redis data..."
-docker exec $REDIS_CONTAINER_NAME redis-cli -u redis://default:$REDIS_PASSWORD@localhost:6379 SAVE
+docker exec $REDIS_CONTAINER_NAME redis-cli --user default --pass $REDIS_PASSWORD SAVE
 
 # Copy dump.rdb from container
 echo "Copying dump.rdb from container..."
@@ -25,9 +25,13 @@ if [ ! -d "node_modules" ]; then
     npm install axios dotenv typescript @types/node ts-node
 fi
 
-# Compile and run TypeScript upload script
+# Compile TypeScript to JavaScript
+echo "Compiling TypeScript..."
+npx tsc
+
+# Run the compiled JavaScript
 echo "Uploading to B2..."
-npx ts-node --esm upload-to-b2.ts
+node dist/upload-to-b2.js
 
 # Clean up
 echo "Cleaning up..."
