@@ -9,6 +9,7 @@ A TypeScript-based solution for backing up multiple Redis instances to Backblaze
 - Instance-specific backup naming
 - Docker container support
 - TypeScript implementation
+- Automated scheduling using systemd
 
 ## Prerequisites
 
@@ -98,6 +99,56 @@ The script includes error handling for:
 - Invalid Redis instance configuration
 - Failed Redis connections
 - Failed B2 uploads
+
+## Automated Backups
+
+The backup service can be configured to run automatically using systemd. Here's how to set it up:
+
+1. Copy the service and timer files to systemd directory:
+```bash
+sudo cp redis-backup.service /etc/systemd/system/
+sudo cp redis-backup.timer /etc/systemd/system/
+```
+
+2. Edit the service file to match your environment:
+```bash
+sudo nano /etc/systemd/system/redis-backup.service
+```
+Update these values:
+- `User`: Your Linux username
+- `WorkingDirectory`: Full path to the project directory
+
+3. Enable and start the timer:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable redis-backup.timer
+sudo systemctl start redis-backup.timer
+```
+
+4. Verify the timer is active:
+```bash
+sudo systemctl status redis-backup.timer
+```
+
+### Timer Configuration
+
+The default configuration runs the backup every 12 hours. To modify the schedule, edit the timer file:
+```bash
+sudo nano /etc/systemd/system/redis-backup.timer
+```
+
+Common schedule examples:
+- Every 12 hours: `OnCalendar=*:00/12:00`
+- Every 24 hours: `OnCalendar=*:00:00`
+- Twice daily (e.g., 2 AM and 2 PM): `OnCalendar=*:02:00,14:02:00`
+
+### Manual Control
+
+- Check service status: `sudo systemctl status redis-backup.service`
+- View logs: `sudo journalctl -u redis-backup.service`
+- Run backup manually: `sudo systemctl start redis-backup.service`
+- Stop automated backups: `sudo systemctl stop redis-backup.timer`
+- Disable automated backups: `sudo systemctl disable redis-backup.timer`
 
 ## Contributing
 

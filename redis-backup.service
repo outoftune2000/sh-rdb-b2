@@ -1,0 +1,16 @@
+[Unit]
+Description=Redis Backup to B2 Service
+After=network.target
+
+[Service]
+Type=oneshot
+User=YOUR_USERNAME
+WorkingDirectory=/path/to/sh-rdb-b2
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm run backup
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=redis-backup
+
+[Install]
+WantedBy=multi-user.target 

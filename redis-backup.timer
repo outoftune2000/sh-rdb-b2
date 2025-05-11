@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Redis Backup every 12 hours
+Requires=redis-backup.service
+
+[Timer]
+# Run every 12 hours
+OnCalendar=*:00/12:00
+AccuracySec=1m
+Persistent=true
+
+[Install]
+WantedBy=timers.target 
