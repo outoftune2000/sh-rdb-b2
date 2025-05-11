@@ -46,11 +46,32 @@ async function getUploadUrl(authResponse: B2AuthResponse, bucketId: string): Pro
   return response.data;
 }
 
+async function uploadFileToB2(
+  filePath: string,
+  fileName: string,
+  authResponse: B2AuthResponse,
+  uploadUrlResponse: B2UploadUrlResponse
+): Promise<void> {
+  const fileContent = fs.readFileSync(filePath);
+  const sha1 = createHash('sha1').update(fileContent).digest('hex');
+  
+  await axios.post(uploadUrlResponse.uploadUrl, fileContent, {
+    headers: {
+      'Authorization': uploadUrlResponse.authorizationToken,
+      'Content-Type': 'b2/x-auto',
+      'Content-Length': fileContent.length.toString(),
+      'X-Bz-File-Name': encodeURIComponent(fileName),
+      'X-Bz-Content-Sha1': sha1
+    }
+  });
+
+  console.log(`Successfully uploaded ${fileName} to B2`);
+  console.log('File URL:', `${authResponse.downloadUrl}/file/${process.env.B2_BUCKET_ID}/${fileName}`);
+}
+
 async function uploadToB2() {
   try {
-    const filePath = path.join(process.cwd(), 'dump.rdb');
     const bucketId = process.env.B2_BUCKET_ID;
-
     if (!bucketId) {
       throw new Error('B2_BUCKET_ID not found in environment variables');
     }
@@ -61,26 +82,26 @@ async function uploadToB2() {
     // Get upload URL
     const uploadUrlResponse = await getUploadUrl(authResponse, bucketId);
     
-    // Read file
-    const fileContent = fs.readFileSync(filePath);
-    const fileName = `redis-backup-${new Date().toISOString()}.rdb`;
-    
-    // Calculate SHA1
-    const sha1 = createHash('sha1').update(fileContent).digest('hex');
-    
-    // Upload file
-    const response = await axios.post(uploadUrlResponse.uploadUrl, fileContent, {
-      headers: {
-        'Authorization': uploadUrlResponse.authorizationToken,
-        'Content-Type': 'b2/x-auto',
-        'Content-Length': fileContent.length.toString(),
-        'X-Bz-File-Name': encodeURIComponent(fileName),
-        'X-Bz-Content-Sha1': sha1
-      }
-    });
+    // Find all dump files
+    const dumpFiles = fs.readdirSync(process.cwd())
+      .filter(file => file.startsWith('dump_') && file.endsWith('.rdb'));
 
-    console.log('Successfully uploaded to B2');
-    console.log('File URL:', `${authResponse.downloadUrl}/file/${bucketId}/${fileName}`);
+    if (dumpFiles.length === 0) {
+      throw new Error('No Redis dump files found');
+    }
+
+    // Upload each dump file
+    for (const dumpFile of dumpFiles) {
+      const instanceName = dumpFile.replace('dump_', '').replace('.rdb', '');
+      const fileName = `redis-backup-${instanceName}-${new Date().toISOString()}.rdb`;
+      await uploadFileToB2(
+        path.join(process.cwd(), dumpFile),
+        fileName,
+        authResponse,
+        uploadUrlResponse
+      );
+    }
+
   } catch (error: unknown) {
     if (axios.isAxiosError(error as any)) {
       console.error('Upload failed:', (error as any).response?.data || (error as any).message);
