@@ -18,8 +18,8 @@ backup_redis_instance() {
     local instance_name=$3
 
     echo "Backing up Redis instance: $instance_name"
-    
-    # Execute SAVE command in Redis
+
+# Execute SAVE command in Redis
     echo "Saving Redis data for $instance_name..."
     docker exec $container_name redis-cli -a "$password" --no-auth-warning SAVE
 

@@ -8,7 +8,8 @@ User=root
 WorkingDirectory=/root/sh-rdb-b2
 Environment=NODE_ENV=production
 Environment=HOME=/root
-ExecStart=/usr/bin/npm run backup
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/bin/bash /root/sh-rdb-b2/backup-redis.sh
 StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=redis-backup
