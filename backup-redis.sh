@@ -1,8 +1,21 @@
 #!/bin/bash
 
+# Enable error reporting
+set -e
+set -x
+
+echo "Starting backup process at $(date)"
+echo "Current directory: $(pwd)"
+echo "User: $(whoami)"
+echo "PATH: $PATH"
+
 # Load environment variables
 if [ -f .env ]; then
+    echo "Loading .env file"
     export $(cat .env | grep -v '^#' | xargs)
+else
+    echo "Error: .env file not found"
+    exit 1
 fi
 
 # Check if required environment variables are set
@@ -18,8 +31,8 @@ backup_redis_instance() {
     local instance_name=$3
 
     echo "Backing up Redis instance: $instance_name"
-
-# Execute SAVE command in Redis
+    
+    # Execute SAVE command in Redis
     echo "Saving Redis data for $instance_name..."
     docker exec $container_name redis-cli -a "$password" --no-auth-warning SAVE
 
@@ -64,4 +77,4 @@ node dist/upload-to-b2.js
 echo "Cleaning up..."
 rm -f dump_*.rdb
 
-echo "Backup process completed successfully!" 
+echo "Backup process completed successfully at $(date)" 
