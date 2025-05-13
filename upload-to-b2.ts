@@ -83,8 +83,8 @@ async function uploadToB2() {
     const uploadUrlResponse = await getUploadUrl(authResponse, bucketId);
     
     // Find all dump files
-    const dumpFiles = fs.readdirSync(process.cwd())
-      .filter(file => file.startsWith('dump_') && file.endsWith('.rdb'));
+    const dumpFiles: string[] = fs.readdirSync(process.cwd())
+      .filter((file: string) => file.startsWith('dump_') && file.endsWith('.rdb'));
 
     if (dumpFiles.length === 0) {
       throw new Error('No Redis dump files found');
