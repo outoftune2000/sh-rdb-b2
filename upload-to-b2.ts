@@ -2,6 +2,7 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { createHash } = require('crypto');
+const { Readable } = require('stream');
 require('dotenv').config();
 
 interface B2AuthResponse {
@@ -46,23 +47,39 @@ async function getUploadUrl(authResponse: B2AuthResponse, bucketId: string): Pro
   return response.data;
 }
 
+async function calculateFileSha1(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha1');
+    const stream = fs.createReadStream(filePath);
+    
+    stream.on('data', (data: Buffer) => hash.update(data));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', (err: Error) => reject(err));
+  });
+}
+
 async function uploadFileToB2(
   filePath: string,
   fileName: string,
   authResponse: B2AuthResponse,
   uploadUrlResponse: B2UploadUrlResponse
 ): Promise<void> {
-  const fileContent = fs.readFileSync(filePath);
-  const sha1 = createHash('sha1').update(fileContent).digest('hex');
+  const fileStats = fs.statSync(filePath);
+  const fileSize = fileStats.size;
+  const sha1 = await calculateFileSha1(filePath);
   
-  await axios.post(uploadUrlResponse.uploadUrl, fileContent, {
+  const fileStream = fs.createReadStream(filePath);
+  
+  await axios.post(uploadUrlResponse.uploadUrl, fileStream, {
     headers: {
       'Authorization': uploadUrlResponse.authorizationToken,
       'Content-Type': 'b2/x-auto',
-      'Content-Length': fileContent.length.toString(),
+      'Content-Length': fileSize.toString(),
       'X-Bz-File-Name': encodeURIComponent(fileName),
       'X-Bz-Content-Sha1': sha1
-    }
+    },
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity
   });
 
   console.log(`Successfully uploaded ${fileName} to B2`);
