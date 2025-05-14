@@ -29,7 +29,14 @@ interface B2StartLargeFileResponse {
   contentType: string;
 }
 
+interface B2File {
+  fileName: string;
+  uploadTimestamp: number;
+  fileId: string;
+}
+
 const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB chunks
+const MAX_BACKUPS_PER_INSTANCE = 2; // Keep 2 previous versions
 
 async function getB2Auth(): Promise<B2AuthResponse> {
   const { B2_APPLICATION_KEY_ID, B2_APPLICATION_KEY } = process.env;
@@ -47,6 +54,54 @@ async function getB2Auth(): Promise<B2AuthResponse> {
   });
 
   return response.data;
+}
+
+async function listFiles(authResponse: B2AuthResponse, bucketId: string): Promise<B2File[]> {
+  const response = await axios.get(
+    `${authResponse.apiUrl}/b2api/v2/b2_list_file_names`,
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      },
+      params: {
+        bucketId,
+        maxFileCount: 1000
+      }
+    }
+  );
+  return response.data.files;
+}
+
+async function deleteFile(authResponse: B2AuthResponse, fileId: string, fileName: string): Promise<void> {
+  await axios.post(
+    `${authResponse.apiUrl}/b2api/v2/b2_delete_file_version`,
+    {
+      fileId,
+      fileName
+    },
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      }
+    }
+  );
+}
+
+async function cleanupOldBackups(authResponse: B2AuthResponse, bucketId: string, instanceName: string): Promise<void> {
+  const files = await listFiles(authResponse, bucketId);
+  
+  // Filter files for this instance and sort by upload time (newest first)
+  const instanceFiles = files
+    .filter(file => file.fileName.startsWith(`redis-backup-${instanceName}-`))
+    .sort((a, b) => b.uploadTimestamp - a.uploadTimestamp);
+  
+  // Delete files beyond the MAX_BACKUPS_PER_INSTANCE limit
+  const filesToDelete = instanceFiles.slice(MAX_BACKUPS_PER_INSTANCE);
+  
+  for (const file of filesToDelete) {
+    console.log(`Deleting old backup: ${file.fileName}`);
+    await deleteFile(authResponse, file.fileId, file.fileName);
+  }
 }
 
 async function startLargeFileUpload(
@@ -211,6 +266,11 @@ async function uploadToB2() {
     for (const dumpFile of dumpFiles) {
       const instanceName = dumpFile.replace('dump_', '').replace('.rdb', '');
       const fileName = `redis-backup-${instanceName}-${new Date().toISOString()}.rdb`;
+      
+      // Clean up old backups before uploading new one
+      await cleanupOldBackups(authResponse, bucketId, instanceName);
+      
+      // Upload the new backup
       await uploadLargeFileToB2(
         path.join(process.cwd(), dumpFile),
         fileName,

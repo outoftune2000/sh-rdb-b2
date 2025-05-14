@@ -9,7 +9,7 @@ WorkingDirectory=/root/sh-rdb-b2
 Environment=NODE_ENV=production
 Environment=HOME=/root
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/bin/bash -c 'cd /root/sh-rdb-b2 && ./backup-redis.sh'
+ExecStart=/bin/bash /root/sh-rdb-b2/backup-redis.sh
 StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=redis-backup
