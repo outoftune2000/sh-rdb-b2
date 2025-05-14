@@ -16,6 +16,21 @@ interface B2UploadUrlResponse {
   authorizationToken: string;
 }
 
+interface B2UploadPartUrlResponse {
+  uploadUrl: string;
+  authorizationToken: string;
+}
+
+interface B2StartLargeFileResponse {
+  fileId: string;
+  fileName: string;
+  accountId: string;
+  bucketId: string;
+  contentType: string;
+}
+
+const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB chunks
+
 async function getB2Auth(): Promise<B2AuthResponse> {
   const { B2_APPLICATION_KEY_ID, B2_APPLICATION_KEY } = process.env;
   
@@ -34,56 +49,144 @@ async function getB2Auth(): Promise<B2AuthResponse> {
   return response.data;
 }
 
-async function getUploadUrl(authResponse: B2AuthResponse, bucketId: string): Promise<B2UploadUrlResponse> {
-  const response = await axios.get(`${authResponse.apiUrl}/b2api/v2/b2_get_upload_url`, {
-    headers: {
-      'Authorization': authResponse.authorizationToken
+async function startLargeFileUpload(
+  authResponse: B2AuthResponse,
+  fileName: string,
+  contentType: string,
+  bucketId: string
+): Promise<B2StartLargeFileResponse> {
+  const response = await axios.post(
+    `${authResponse.apiUrl}/b2api/v2/b2_start_large_file`,
+    {
+      bucketId,
+      fileName,
+      contentType
     },
-    params: {
-      bucketId
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      }
     }
-  });
-
+  );
   return response.data;
 }
 
-async function calculateFileSha1(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash('sha1');
-    const stream = fs.createReadStream(filePath);
-    
-    stream.on('data', (data: Buffer) => hash.update(data));
-    stream.on('end', () => resolve(hash.digest('hex')));
-    stream.on('error', (err: Error) => reject(err));
-  });
+async function getUploadPartUrl(
+  authResponse: B2AuthResponse,
+  fileId: string
+): Promise<B2UploadPartUrlResponse> {
+  const response = await axios.get(
+    `${authResponse.apiUrl}/b2api/v2/b2_get_upload_part_url`,
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      },
+      params: {
+        fileId
+      }
+    }
+  );
+  return response.data;
 }
 
-async function uploadFileToB2(
+async function uploadPart(
+  uploadUrl: string,
+  authorizationToken: string,
+  partNumber: number,
+  fileId: string,
+  chunk: Buffer
+): Promise<{ partNumber: number; contentLength: number; contentSha1: string }> {
+  const sha1 = createHash('sha1').update(chunk).digest('hex');
+  
+  const response = await axios.post(
+    uploadUrl,
+    chunk,
+    {
+      headers: {
+        'Authorization': authorizationToken,
+        'Content-Type': 'b2/x-auto',
+        'Content-Length': chunk.length.toString(),
+        'X-Bz-Part-Number': partNumber.toString(),
+        'X-Bz-Content-Sha1': sha1
+      }
+    }
+  );
+  
+  return {
+    partNumber,
+    contentLength: chunk.length,
+    contentSha1: sha1
+  };
+}
+
+async function finishLargeFile(
+  authResponse: B2AuthResponse,
+  fileId: string,
+  partSha1Array: string[]
+): Promise<void> {
+  await axios.post(
+    `${authResponse.apiUrl}/b2api/v2/b2_finish_large_file`,
+    {
+      fileId,
+      partSha1Array
+    },
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      }
+    }
+  );
+}
+
+async function uploadLargeFileToB2(
   filePath: string,
   fileName: string,
   authResponse: B2AuthResponse,
-  uploadUrlResponse: B2UploadUrlResponse
+  bucketId: string
 ): Promise<void> {
   const fileStats = fs.statSync(filePath);
   const fileSize = fileStats.size;
-  const sha1 = await calculateFileSha1(filePath);
   
-  const fileStream = fs.createReadStream(filePath);
+  // Start large file upload
+  const startResponse = await startLargeFileUpload(
+    authResponse,
+    fileName,
+    'b2/x-auto',
+    bucketId
+  );
   
-  await axios.post(uploadUrlResponse.uploadUrl, fileStream, {
-    headers: {
-      'Authorization': uploadUrlResponse.authorizationToken,
-      'Content-Type': 'b2/x-auto',
-      'Content-Length': fileSize.toString(),
-      'X-Bz-File-Name': encodeURIComponent(fileName),
-      'X-Bz-Content-Sha1': sha1
-    },
-    maxContentLength: Infinity,
-    maxBodyLength: Infinity
-  });
-
+  const fileId = startResponse.fileId;
+  const totalParts = Math.ceil(fileSize / CHUNK_SIZE);
+  const partSha1Array: string[] = [];
+  
+  // Upload each part
+  for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+    const start = (partNumber - 1) * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, fileSize);
+    const chunk = Buffer.alloc(end - start);
+    
+    const fileHandle = fs.openSync(filePath, 'r');
+    fs.readSync(fileHandle, chunk, 0, end - start, start);
+    fs.closeSync(fileHandle);
+    
+    const uploadPartUrlResponse = await getUploadPartUrl(authResponse, fileId);
+    const partResponse = await uploadPart(
+      uploadPartUrlResponse.uploadUrl,
+      uploadPartUrlResponse.authorizationToken,
+      partNumber,
+      fileId,
+      chunk
+    );
+    
+    partSha1Array[partNumber - 1] = partResponse.contentSha1;
+    console.log(`Uploaded part ${partNumber} of ${totalParts}`);
+  }
+  
+  // Finish large file upload
+  await finishLargeFile(authResponse, fileId, partSha1Array);
+  
   console.log(`Successfully uploaded ${fileName} to B2`);
-  console.log('File URL:', `${authResponse.downloadUrl}/file/${process.env.B2_BUCKET_ID}/${fileName}`);
+  console.log('File URL:', `${authResponse.downloadUrl}/file/${bucketId}/${fileName}`);
 }
 
 async function uploadToB2() {
@@ -95,9 +198,6 @@ async function uploadToB2() {
 
     // Get B2 authorization
     const authResponse = await getB2Auth();
-    
-    // Get upload URL
-    const uploadUrlResponse = await getUploadUrl(authResponse, bucketId);
     
     // Find all dump files
     const dumpFiles: string[] = fs.readdirSync(process.cwd())
@@ -111,11 +211,11 @@ async function uploadToB2() {
     for (const dumpFile of dumpFiles) {
       const instanceName = dumpFile.replace('dump_', '').replace('.rdb', '');
       const fileName = `redis-backup-${instanceName}-${new Date().toISOString()}.rdb`;
-      await uploadFileToB2(
+      await uploadLargeFileToB2(
         path.join(process.cwd(), dumpFile),
         fileName,
         authResponse,
-        uploadUrlResponse
+        bucketId
       );
     }
 
