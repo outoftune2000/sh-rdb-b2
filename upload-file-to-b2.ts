@@ -1,0 +1,231 @@
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const { createHash } = require('crypto');
+require('dotenv').config();
+
+interface B2AuthResponse {
+  authorizationToken: string;
+  apiUrl: string;
+  downloadUrl: string;
+}
+
+interface B2UploadPartUrlResponse {
+  uploadUrl: string;
+  authorizationToken: string;
+}
+
+interface B2StartLargeFileResponse {
+  fileId: string;
+  fileName: string;
+  accountId: string;
+  bucketId: string;
+  contentType: string;
+}
+
+const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB chunks
+
+async function getB2Auth(): Promise<B2AuthResponse> {
+  const { B2_APPLICATION_KEY_ID, B2_APPLICATION_KEY } = process.env;
+  
+  if (!B2_APPLICATION_KEY_ID || !B2_APPLICATION_KEY) {
+    throw new Error('B2 credentials not found in environment variables');
+  }
+
+  const authString = Buffer.from(`${B2_APPLICATION_KEY_ID}:${B2_APPLICATION_KEY}`).toString('base64');
+  
+  const response = await axios.get('https://api.backblazeb2.com/b2api/v2/b2_authorize_account', {
+    headers: {
+      'Authorization': `Basic ${authString}`
+    }
+  });
+
+  return response.data;
+}
+
+async function startLargeFileUpload(
+  authResponse: B2AuthResponse,
+  fileName: string,
+  contentType: string,
+  bucketId: string
+): Promise<B2StartLargeFileResponse> {
+  const response = await axios.post(
+    `${authResponse.apiUrl}/b2api/v2/b2_start_large_file`,
+    {
+      bucketId,
+      fileName,
+      contentType
+    },
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      }
+    }
+  );
+  return response.data;
+}
+
+async function getUploadPartUrl(
+  authResponse: B2AuthResponse,
+  fileId: string
+): Promise<B2UploadPartUrlResponse> {
+  const response = await axios.get(
+    `${authResponse.apiUrl}/b2api/v2/b2_get_upload_part_url`,
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      },
+      params: {
+        fileId
+      }
+    }
+  );
+  return response.data;
+}
+
+async function uploadPart(
+  uploadUrl: string,
+  authorizationToken: string,
+  partNumber: number,
+  fileId: string,
+  chunk: Buffer
+): Promise<{ partNumber: number; contentLength: number; contentSha1: string }> {
+  const sha1 = createHash('sha1').update(chunk).digest('hex');
+  
+  const response = await axios.post(
+    uploadUrl,
+    chunk,
+    {
+      headers: {
+        'Authorization': authorizationToken,
+        'Content-Type': 'b2/x-auto',
+        'Content-Length': chunk.length.toString(),
+        'X-Bz-Part-Number': partNumber.toString(),
+        'X-Bz-Content-Sha1': sha1
+      }
+    }
+  );
+  
+  return {
+    partNumber,
+    contentLength: chunk.length,
+    contentSha1: sha1
+  };
+}
+
+async function finishLargeFile(
+  authResponse: B2AuthResponse,
+  fileId: string,
+  partSha1Array: string[]
+): Promise<void> {
+  await axios.post(
+    `${authResponse.apiUrl}/b2api/v2/b2_finish_large_file`,
+    {
+      fileId,
+      partSha1Array
+    },
+    {
+      headers: {
+        'Authorization': authResponse.authorizationToken
+      }
+    }
+  );
+}
+
+async function uploadFileToB2(
+  filePath: string,
+  fileName: string,
+  authResponse: B2AuthResponse,
+  bucketId: string
+): Promise<void> {
+  const fileStats = fs.statSync(filePath);
+  const fileSize = fileStats.size;
+  
+  // Start large file upload
+  const startResponse = await startLargeFileUpload(
+    authResponse,
+    fileName,
+    'b2/x-auto',
+    bucketId
+  );
+  
+  const fileId = startResponse.fileId;
+  const totalParts = Math.ceil(fileSize / CHUNK_SIZE);
+  const partSha1Array: string[] = [];
+  
+  // Upload each part
+  for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+    const start = (partNumber - 1) * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, fileSize);
+    const chunk = Buffer.alloc(end - start);
+    
+    const fileHandle = fs.openSync(filePath, 'r');
+    fs.readSync(fileHandle, chunk, 0, end - start, start);
+    fs.closeSync(fileHandle);
+    
+    const uploadPartUrlResponse = await getUploadPartUrl(authResponse, fileId);
+    const partResponse = await uploadPart(
+      uploadPartUrlResponse.uploadUrl,
+      uploadPartUrlResponse.authorizationToken,
+      partNumber,
+      fileId,
+      chunk
+    );
+    
+    partSha1Array[partNumber - 1] = partResponse.contentSha1;
+    console.log(`Uploaded part ${partNumber} of ${totalParts}`);
+  }
+  
+  // Finish large file upload
+  await finishLargeFile(authResponse, fileId, partSha1Array);
+  
+  console.log(`Successfully uploaded ${fileName} to B2`);
+  console.log('File URL:', `${authResponse.downloadUrl}/file/${bucketId}/${fileName}`);
+}
+
+async function main() {
+  try {
+    // Get command line arguments
+    const args = process.argv.slice(2);
+    if (args.length !== 1) {
+      console.error('Usage: node upload-file-to-b2.js <file-path>');
+      process.exit(1);
+    }
+
+    const filePath = args[0];
+    if (!fs.existsSync(filePath)) {
+      console.error(`Error: File not found: ${filePath}`);
+      process.exit(1);
+    }
+
+    const bucketId = process.env.B2_BUCKET_ID;
+    if (!bucketId) {
+      throw new Error('B2_BUCKET_ID not found in environment variables');
+    }
+
+    // Get B2 authorization
+    const authResponse = await getB2Auth();
+    
+    // Use the original filename or generate one with timestamp
+    const fileName = path.basename(filePath);
+    const timestampedFileName = `${path.parse(fileName).name}-${new Date().toISOString()}${path.extname(fileName)}`;
+    
+    // Upload the file
+    await uploadFileToB2(
+      filePath,
+      timestampedFileName,
+      authResponse,
+      bucketId
+    );
+
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error as any)) {
+      console.error('Upload failed:', (error as any).response?.data || (error as any).message);
+    } else {
+      console.error('Upload failed:', error);
+    }
+    process.exit(1);
+  }
+}
+
+main(); 
