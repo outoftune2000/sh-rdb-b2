@@ -1,16 +1,18 @@
 {
-  "name": "redis-backup-b2",
+  "name": "b2-uploader",
   "version": "1.0.0",
-  "description": "Redis backup to Backblaze B2",
-  "main": "upload-to-b2.ts",
+  "description": "B2 file uploader",
+  "main": "dist/upload-file-to-b2.js",
   "scripts": {
-    "backup": "bash backup-redis.sh"
+    "build": "tsc",
+    "start": "node dist/upload-file-to-b2.js"
   },
   "dependencies": {
     "axios": "^1.6.7",
-    "dotenv": "^16.4.5",
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0",
-    "ts-node": "^10.9.2"
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "typescript": "^5.3.3"
   }
 } 
