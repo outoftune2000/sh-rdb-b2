@@ -10,7 +10,7 @@
     "forceConsistentCasingInFileNames": true
   },
   "include": [
-    "*.ts"
+    "upload-file-to-b2.ts"
   ],
   "exclude": [
     "node_modules",
